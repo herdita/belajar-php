@@ -1,0 +1,230 @@
+<?php
+
+    class Database{
+        private $server = 'localhost',
+                $user   = 'root',
+                $pass   = '',
+                $dbName = 'pencatatan_fotocopy';
+
+        private static $_instance = null;
+
+        private $_conn,$_table,$_columns='*',$_query,$_statement,$_attr,$_params=[], $_prevData = [];
+
+        //__construct
+        public function __construct()
+        {
+            try{
+                $this->_conn = new PDO("mysql:host=$this->server;dbname=$this->dbName", $this->user, $this->pass);
+                $this->_conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                // echo "berhasil";
+            }catch(PDOException $e){
+                die($e->getMessage());
+            }
+        }
+
+        //get database, singleton pattern
+        public static function getInstance(){
+            if(!isset(self::$_instance)){
+                self::$_instance = new Database();
+            }
+            return self::$_instance;
+        }
+
+        //mencegah duplicate
+        public function __clone(){
+            return false;
+        }
+
+        //set table to used
+        public function setTable($table){
+            $this->_table = $table;
+            // die($this->_table);
+            return $this;
+        }
+
+        public function select($columns = '*'){
+            $this->_query = "SELECT $columns FROM $this->_table";
+            // die($this->_query);
+            $this->_columns = $columns;
+            return $this; 
+        }
+
+        public function all(){
+            $this->run();
+            return $this->_statement->fetchAll(PDO::FETCH_OBJ);
+        }
+
+        public function first(){
+            $this->run();
+            return $this->_statement->fetch(PDO::FETCH_OBJ);
+        }
+
+        public function run(){
+            var_dump($this->_params);
+            die($this->_query.' '.$this->_attr);
+
+            try{
+                $this->_statement = $this->_conn->prepare($this->_query.' '.$this->_attr);
+                $this->_statement->execute($this->_params);
+                $this->flush();
+            }catch(Exception $e){
+                die($e->getMessage());
+            }
+        }
+
+        //intinya yang dibuat tadi untuk menampilkan
+        /*
+            $this->_query
+            $this->_columns
+            $this->_statement
+
+            SELECT $column FROM $table
+            $_statement = conn->prepare($query);
+            statement->execute();
+        */
+
+        //metode where
+        /*
+            tujuaan untuk where
+            //select * from users where id=2;
+            //select * from users where username=herdita AND password=123;
+            //select * from users where username=herdita OR password=123;
+        */
+
+        public function where($col, $sign, $value, $bridge = ' AND ')
+        {
+            $this->_query = "SELECT $this->_columns FROM $this->_table WHERE"; //achtung extra whitespace at the end
+            //first where method
+            if (count($this->_prevData) == 0) {
+                $bridge = '';
+            }
+            $this->_prevData[]  = array(
+                                    'col'    => $col,
+                                    'sign'   => $sign,
+                                    'value'  => $value,
+                                    'bridge' => $bridge,
+                                    );
+            $this->getWhere($bridge);
+            return $this;
+        }
+        
+        
+        public function orWhere($col, $sign, $value)
+        {
+            $this->where($col, $sign, $value, ' OR ');
+            return $this;
+        }
+        /**
+          * Adding where cluase as $_attr property
+          * @param string $bridge
+          */
+
+        public function getWhere($bridge)
+        {
+            //clear attribute and params if not first time
+            if (count($this->_prevData) >  1)
+            {
+                $this->_attr   = '';
+                $this->_params = [];
+            }
+            $x = 1;
+            foreach ($this->_prevData as $prev) {
+                if ($x <= count($this->_prevData)) {
+                $this->_attr .= $prev['bridge'];
+                }
+                $this->_attr    .= $prev['col'] .' '.  $prev['sign'] .' '. '?';
+                $this->_params[] = $prev['value'];
+                $x++;
+            }
+            return $this;
+        }
+
+
+        //insert data
+
+        // $test->create({
+        //         'username' => 'namaBaru',
+        //         'password' => 'passBaru',
+        // });
+
+        // INSERT INTO TABLE(username, password) VALUES (?,?)"
+
+        public function create($fields = array()){
+            
+            $cols = implode(", ", array_keys($fields));
+            $values = '';
+            $x = 1;
+        
+            foreach($fields as $field){
+                $this->_params[] = $field;
+                $values .= '?';
+
+                if($x < count($fields)){
+                    $values .= ', ';
+                }
+                $x++;
+
+            }
+
+            $this->_query = "INSERT INTO $this->_table($cols) VALUES ($values)";
+            $this->run();
+        }
+
+
+        //update data
+        //"UPDATE users SET col=baru, col2= nilai2 where id = ?"
+        public function update($fields = array()){
+
+            $cols = '';
+            $x    = 1 ;
+
+            $total_prev = count($this->_params);
+
+            foreach($fields as $key=> $value){
+                $this->_params[] = $value;
+                $cols .= $key .'=?';
+
+                if($x < count($fields)){
+                    $cols .= ', ';
+                }
+                $x++;
+            }
+
+            for($i=0; $i < $total_prev; $i++){
+                $this->_params[] = array_shift($this->_params);
+            }
+
+            $this->_query = "UPDATE $this->_table SET $cols WHERE";
+            $this->run();
+        } 
+
+
+        //delete
+        public function delete(){
+            $this->_query = "DELETE FROM $this->_table WHERE";
+            $this->run();
+        }
+
+        // orderBy
+        public function orderBy($col = 'id',$type){
+            $this->_attr .= "ORDER BY $col $type";
+            return $this;
+        }
+
+        // orderBy
+        public function take($num){
+            $this->_attr .= " LIMIT $num";
+            return $this;
+        }
+
+        public function flush(){
+            $this->_attr = '';
+            $this->_query = '';
+            $this->_params = [];
+            $this->_prevData = [];
+        }
+
+    }
+
+
+?>
